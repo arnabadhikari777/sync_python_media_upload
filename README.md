@@ -1,365 +1,241 @@
-# Sync Python Media Upload Service
+# Sync Python Media and Mail Service
 
-A lightweight Flask-based companion service built for **[Sync](https://github.com/duttaanubhab777-code/sync)** — a real-time communication platform.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![Main project](https://img.shields.io/badge/Part%20of-Sync-6366F1?logo=github)](https://github.com/duttaanubhab777-code/sync)
 
-This service handles secure media upload signing and email delivery for Sync. It is designed to work alongside the main Sync backend, keeping sensitive credentials and service-level operations away from the browser.
+A small Flask microservice that supports [Sync](https://github.com/duttaanubhab777-code/sync), the real-time communication platform. It provides server-side Cloudinary upload signing and a protected Gmail SMTP relay for signup verification emails.
 
-<p align="center">
-  <a href="https://github.com/duttaanubhab777-code/sync">
-    <img src="https://img.shields.io/badge/Sync-Main%20Project-6366f1?style=for-the-badge&logo=github" alt="Sync Repository">
-  </a>
-  <a href="https://sync-5lfm.onrender.com">
-    <img src="https://img.shields.io/badge/Live%20App-Visit-10b981?style=for-the-badge&logo=vercel" alt="Live App">
-  </a>
-  <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Flask-Backend-black?style=for-the-badge&logo=flask" alt="Flask">
-</p>
+This service is maintained in two locations:
 
----
+- **Main Sync repository:** `python-service/` — the canonical development and integration copy.
+- **Standalone deployment repository:** [sync_python_media_upload](https://github.com/arnabadhikari777/sync_python_media_upload) — the source repository connected to PythonAnywhere.
 
-## Overview
+The application code and this README are intended to stay identical in both locations. Repository-specific deployment and product documentation remains in the main Sync repository and is linked below.
 
-The Sync Python service is a dedicated backend component responsible for selected operations that are handled separately from the primary Node.js backend.
+## Responsibilities
 
-It currently provides two main capabilities:
+| Capability | What this service does |
+|---|---|
+| Media signing | Validates a Sync access token and creates a short-lived Cloudinary upload signature. |
+| Email relay | Accepts authenticated server-to-server requests from the Node.js backend and sends signup OTP email through Gmail SMTP. |
+| Health status | Reports service availability and non-secret configuration status. |
+| Diagnostics | Provides a protected SMTP connectivity check for service owners. |
 
-- **Cloudinary media signing:** Generates secure upload signatures so clients can upload media directly to Cloudinary.
-- **Email relay:** Sends application emails, including signup OTP emails, through configured Gmail SMTP credentials.
-
-The service does not replace the main Sync backend. It works as a supporting microservice.
+The service does not store uploaded media and does not replace the main Node.js backend. The browser uploads media directly to Cloudinary after receiving signed parameters.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    A[Sync Web Client] --> B[Sync Node.js Backend]
-    B --> C[MongoDB]
-    B --> D[Python Flask Service]
-    D --> E[Cloudinary]
-    D --> F[Gmail SMTP]
-    A -. Direct Media Upload .-> E
-```
+### Media upload
 
-### How it works
+~~~text
+Sync browser
+    |  Authorization: Bearer <access token>
+    v
+Python service: POST /api/v1/media/sign
+    |  validates token and signs upload parameters
+    v
+Sync browser ----------------------> Cloudinary
+    |                                  |
+    | media URL + metadata             | stores media
+    v                                  |
+Sync Node.js backend <----------------+
+    |
+    v
+MongoDB
+~~~
 
-1. The Sync client communicates with the main Node.js backend.
-2. The Node.js backend requests the required operation from the Python service.
-3. The Python service validates requests and handles signing or email delivery.
-4. Media files are uploaded directly from the client to Cloudinary using signed upload parameters.
-5. Email messages are delivered through the configured SMTP account.
+### Signup OTP email
 
-## Features
+~~~text
+Sync browser
+    |
+    v
+Sync Node.js backend
+    |  POST /api/v1/mail/send
+    |  X-Relay-Key: <shared secret>
+    v
+Python service
+    |
+    v
+Gmail SMTP
+    |
+    v
+User inbox
+~~~
 
-### 1. Secure Cloudinary Media Upload
+## API reference
 
-The service generates signed Cloudinary upload parameters.
+All application endpoints are versioned under /api/v1. The prefix is registered centrally in app.py; route decorators inside the blueprints must remain relative to that prefix.
 
-Supported upload purposes include:
+| Method | Endpoint | Authentication | Purpose |
+|---|---|---|---|
+| GET | /api/v1/health | Public | Liveness and non-secret configuration status. |
+| POST | /api/v1/media/sign | Bearer access token | Creates signed Cloudinary upload parameters. |
+| POST | /api/v1/mail/send | X-Relay-Key header | Sends an email requested by the trusted Node.js backend. |
+| GET | /api/v1/mail/diag | X-Relay-Key header, or key query parameter for owner diagnostics | Checks SMTP connectivity and can optionally send a test email. |
 
-| Purpose | Description |
-|---|---|
-| `chat` | Chat attachments |
-| `voice` | Voice messages |
-| `avatar` | User profile pictures |
-| `story` | User stories |
-| `group` | Group media |
-| `notice` | Notice attachments |
+### Media signing
 
-**Important:** The Python service signs uploads; it does not act as a file-storage server or proxy all uploaded media through itself.
+Request:
 
-### 2. Email Relay
-
-The email service provides SMTP-based email delivery for Sync.
-
-Features include:
-
-- Signup OTP email delivery
-- SMTP SSL and STARTTLS support
-- Shared-secret verification
-- Origin validation
-- Recipient-based rate limiting
-- SMTP diagnostic endpoint
-
-### 3. Health Monitoring
-
-A health endpoint is available to check whether the service is responding.
-
-### 4. Security
-
-- Environment-based configuration
-- JWT compatibility utilities
-- Request validation
-- Protected internal service endpoints
-- Credential separation between frontend and backend
-
----
-
-## API Reference
-
-The following endpoints are exposed by the service.
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `POST` | `/media/sign` | Generate Cloudinary upload signature |
-| `POST` | `/mail/send` | Send an email |
-| `GET` | `/mail/diag` | SMTP diagnostics |
-
-### Health Check
-
-```http
-GET /health
-```
-
-Use this endpoint to verify service availability.
-
-### Generate Media Signature
-
-```http
-POST /media/sign
+~~~http
+POST /api/v1/media/sign
+Authorization: Bearer <accessToken>
 Content-Type: application/json
-```
+~~~
 
-Example request:
+The request body may be empty or specify one supported purpose:
 
-```json
+~~~json
 {
   "purpose": "chat"
 }
-```
+~~~
 
-The service validates the requested purpose and returns the corresponding signed upload parameters.
+Supported purposes: chat, voice, avatar, story, group, and notice. If omitted, the service uses chat.
 
-### Send Email
+The response contains the Cloudinary upload parameters required by the browser. It must never expose CLOUDINARY_API_SECRET or JWT_SECRET.
 
-```http
-POST /mail/send
+### Mail relay
+
+Request:
+
+~~~http
+POST /api/v1/mail/send
+X-Relay-Key: <MAIL_RELAY_SECRET>
 Content-Type: application/json
-```
+~~~
 
-The request must follow the service's configured authentication and validation requirements.
+Example body:
 
-Do not expose the internal shared secret or SMTP credentials in frontend code.
+~~~json
+{
+  "to": "user@example.com",
+  "subject": "Your Sync verification code",
+  "html": "<p>Your verification code is ...</p>"
+}
+~~~
 
-### SMTP Diagnostics
+This endpoint is for server-to-server use only. Requests carrying a browser Origin header are rejected. The shared relay secret must be kept private and must match the Node backend configuration.
 
-```http
-GET /mail/diag
-```
+### SMTP diagnostics
 
-Use this endpoint to inspect the configured SMTP service status. Protect this endpoint according to your deployment configuration.
+The owner-only endpoint is GET /api/v1/mail/diag. Prefer the X-Relay-Key request header. A key query parameter is supported for limited browser-based diagnostics, but URLs containing secrets may be retained in browser history and logs; do not share them.
 
----
+## Configuration
 
-## Project Structure
+Configuration is loaded from environment variables first and then from config.py in the service directory. Environment variables take precedence.
 
-```text
-sync_python_media_upload/
-│
-├── app.py
-├── settings.py
-├── config.example.py
-├── pythonanywhere_wsgi.py
-├── verify_install.py
-├── requirements.txt
-│
-├── routes/
-│   ├── health.py
-│   ├── media.py
-│   └── mail.py
-│
-├── services/
-│   ├── cloudinary_service.py
-│   └── mail_service.py
-│
-├── utils/
-│   ├── jwt_utils.py
-│   ├── security.py
-│   └── responses.py
-│
-└── tests/
-    ├── test_health.py
-    ├── test_media_sign.py
-    ├── test_mail_relay.py
-    ├── test_settings.py
-    └── test_jwt_compat_and_wsgi.py
-```
+1. Copy config.example.py to config.py.
+2. Set the required values in config.py or the hosting provider's environment configuration.
+3. Never commit config.py or real credentials.
 
----
+### Required settings
 
-## Getting Started
+| Setting | Used for |
+|---|---|
+| JWT_SECRET | Must exactly match the Node backend's JWT_SECRET; used to verify access tokens. |
+| CLOUDINARY_CLOUD_NAME | Cloudinary account name. |
+| CLOUDINARY_API_KEY | Cloudinary API key. |
+| CLOUDINARY_API_SECRET | Private Cloudinary signing secret. |
+| ALLOWED_ORIGINS | Comma-separated list of permitted browser origins; do not use a wildcard. |
+| GMAIL_USER | Gmail sender account for OTP messages. |
+| GMAIL_APP_PASSWORD | Google App Password, not the normal account password. |
+| MAIL_RELAY_SECRET | Shared secret matching the Node backend's mail relay secret; at least 24 characters. |
 
-### Requirements
+### Optional settings
 
-- Python 3.x
-- pip
-- Cloudinary account
-- Gmail account with an app password (if using SMTP email delivery)
+The safe template documents optional settings, including MAIL_FROM_NAME, SMTP_MODE, SMTP_HOST, MEDIA_FOLDER_ROOT, ENFORCE_ALLOWED_FORMATS, CLIENT_IP_HEADER, RATE_LIMIT_PER_MINUTE, AUTH_FAILURE_LIMIT_PER_MINUTE, MAIL_PER_RECIPIENT_LIMIT, and JWT_LEEWAY_SECONDS.
 
-### 1. Clone the repository
+Keep private values out of source control, frontend code, browser storage, screenshots, and public issue reports. Do not use VITE_ variables for server secrets.
 
-```bash
-git clone https://github.com/arnabadhikari777/sync_python_media_upload.git
+## Local development
 
-cd sync_python_media_upload
-```
+Requirements: Python 3.10 or later and pip.
 
-### 2. Create a virtual environment
+Run these commands from the directory containing app.py:
 
-```bash
+~~~sh
 python -m venv .venv
-```
 
-Activate it:
+# Linux / Alpine Linux / macOS
+. .venv/bin/activate
 
-**Windows**
+# Windows PowerShell
+# .venv\Scripts\Activate.ps1
 
-```bash
-.venv\Scripts\activate
-```
-
-**Linux / macOS**
-
-```bash
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure environment variables
-
-Use `config.example.py` as a reference for the configuration required by the application.
-
-Never commit real credentials or production secrets.
-
-Typical configuration categories include:
-
-| Configuration | Purpose |
-|---|---|
-| Cloudinary credentials | Media upload signing |
-| SMTP username | Email sender account |
-| SMTP password | SMTP authentication |
-| SMTP port | SSL or STARTTLS configuration |
-| Shared service secret | Internal request authentication |
-| JWT configuration | Token verification compatibility |
-| Allowed origins | Request-origin validation |
-
-Use the exact variable names expected by `settings.py` and `config.example.py`.
-
-### 5. Run the service
-
-```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cp config.example.py config.py
 python app.py
-```
+~~~
 
-The service will start using the host and port configured by the application.
+Edit config.py with valid development credentials before testing configured functionality. The Flask development server listens on 127.0.0.1:5001 by default. Do not expose the development server directly to the public internet.
 
----
+For browser-based local testing, add the exact local frontend origin to ALLOWED_ORIGINS. Keep the production origin in the allow-list when required by the deployed Sync application.
 
-## Testing
+## Validation and tests
 
-Run the test suite using:
+Run the configuration and dependency check:
 
-```bash
-python -m pytest
-```
-
-You can also verify the installation with:
-
-```bash
+~~~sh
 python verify_install.py
-```
+~~~
 
----
+Run the automated test suite:
 
-## Deployment
+~~~sh
+python -m unittest discover -s tests -v
+~~~
 
-The service is designed to support deployment on PythonAnywhere.
+The tests use isolated test settings and should not require production credentials. Run them after changing routes, authentication, configuration, or service behavior. A successful test run does not replace a deployment smoke test.
 
-The repository includes:
+## PythonAnywhere deployment
 
-```text
-pythonanywhere_wsgi.py
-```
+The standalone repository is connected to the PythonAnywhere deployment. The WSGI entry point is pythonanywhere_wsgi.py; use it as the reference when configuring the PythonAnywhere WSGI file.
 
-Use this WSGI entry point when configuring the PythonAnywhere web application.
+Deployment checklist:
 
-Before deployment:
+1. Pull the intended commit from the standalone repository in the PythonAnywhere project directory.
+2. Install or update dependencies in the web app's configured virtual environment.
+3. Confirm config.py exists on the server and contains the required private settings.
+4. Confirm the WSGI file points to the directory containing app.py.
+5. Reload the PythonAnywhere web app.
+6. Check the public health endpoint.
+7. Verify media signing from an authenticated Sync session and verify mail delivery through the normal signup flow.
 
-1. Install the required dependencies.
-2. Configure all required environment variables.
-3. Verify Cloudinary credentials.
-4. Configure SMTP credentials if email delivery is enabled.
-5. Set the correct internal service secret.
-6. Configure allowed origins.
-7. Point the WSGI configuration to the application.
-8. Test the health endpoint after deployment.
+Health check:
 
-Keep all production credentials in the hosting provider's environment configuration.
+~~~text
+https://<PYTHONANYWHERE_USERNAME>.pythonanywhere.com/api/v1/health
+~~~
 
----
+A healthy response confirms that the application is responding; inspect the non-secret configuration indicators as well. Never paste production secrets, access tokens, OTPs, or diagnostic URLs containing keys into support requests or public logs.
 
-## Security Guidelines
+The full, maintained deployment procedure is documented in the main Sync repository:
+[PythonAnywhere Deployment Guide](https://github.com/duttaanubhab777-code/sync/blob/main/docs/PYTHONANYWHERE_DEPLOYMENT_GUIDE.md).
 
-Security is important because this service handles internal application operations.
+## Repository synchronization policy
 
-- Never commit `.env` files or production credentials.
-- Never expose SMTP passwords or Cloudinary API secrets to the frontend.
-- Keep the shared service secret private.
-- Restrict internal endpoints to trusted callers.
-- Configure allowed origins carefully.
-- Use HTTPS in production.
-- Apply appropriate rate limits.
-- Rotate credentials if they are accidentally exposed.
+To prevent the two copies from drifting:
 
----
+- Make service-code changes in the main Sync repository under python-service/.
+- Keep the standalone repository's application files synchronized with that directory.
+- Keep this README identical in both repositories; update both copies whenever service behavior or configuration changes.
+- Do not overwrite the standalone repository's server-side config.py, local environment files, or deployment-specific files when synchronizing.
+- Do not force-push or replace the standalone repository's Git history to copy service files.
 
-## Integration with Sync
+The standalone README is intentionally self-contained. Links to API and deployment details point to the main Sync repository so the documentation has one maintained reference for product-wide integration.
 
-This repository is part of the larger Sync ecosystem.
+## Related resources
 
-| Project | Description |
-|---|---|
-| [Sync](https://github.com/duttaanubhab777-code/sync) | Main communication platform |
-| [Sync Live](https://sync-5lfm.onrender.com) | Live application |
-| Sync Python Service | Supporting Flask microservice |
-
-The main Sync repository also contains a corresponding `python-service/` directory.
-
-The standalone repository and the main repository's service directory should remain synchronized when service code is updated.
-
-For additional implementation details, refer to the main repository documentation:
-
-- [API Documentation](https://github.com/duttaanubhab777-code/sync/blob/main/docs/API.md)
-- [PythonAnywhere Deployment Guide](https://github.com/duttaanubhab777-code/sync/blob/main/docs/PYTHONANYWHERE_DEPLOYMENT_GUIDE.md)
-- [OTP and Mail Relay Setup Guide](https://github.com/duttaanubhab777-code/sync/blob/main/docs/OTP_AND_MAIL_RELAY_SETUP_GUIDE.md)
-
----
-
-## Contributing
-
-Contributions, bug reports, and improvements are welcome.
-
-When contributing:
-
-1. Keep the service compatible with the main Sync backend.
-2. Follow the existing project structure.
-3. Add or update tests when changing functionality.
-4. Never commit credentials or sensitive configuration.
-5. Update documentation when introducing new endpoints or configuration options.
-
----
+- [Main Sync repository](https://github.com/duttaanubhab777-code/sync)
+- [Standalone Python service repository](https://github.com/arnabadhikari777/sync_python_media_upload)
+- [Sync API reference](https://github.com/duttaanubhab777-code/sync/blob/main/docs/API.md)
+- [PythonAnywhere deployment guide](https://github.com/duttaanubhab777-code/sync/blob/main/docs/PYTHONANYWHERE_DEPLOYMENT_GUIDE.md)
+- [OTP and mail relay setup guide](https://github.com/duttaanubhab777-code/sync/blob/main/docs/OTP_AND_MAIL_RELAY_SETUP_GUIDE.md)
 
 ## License
 
-This project is distributed under the license specified in the repository.
-
----
-
-<p align="center">
-  Built as part of the <a href="https://github.com/duttaanubhab777-code/sync"><strong>Sync ecosystem</strong></a>.
-</p>
+See the LICENSE file in the main Sync repository for the project license.
